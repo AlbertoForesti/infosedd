@@ -15,6 +15,8 @@ from infosedd import losses
 
 from infosedd.model.ema import ExponentialMovingAverage
 from infosedd.model.unetmlp import UnetMLP_simple
+from infosedd.model.unetmlp_seq import UnetMLPSeq
+from infosedd.model.transformer import Transformer
 
 from infosedd.utils import array_to_dataset, get_infinite_loader, get_proj_fn
 from transformers import get_linear_schedule_with_warmup, get_constant_schedule_with_warmup, get_cosine_with_hard_restarts_schedule_with_warmup
@@ -189,16 +191,14 @@ class InfoSEDD(pl.LightningModule):
     
     def _build_score_model(self):
         # build score model
-        if self.args.model.name == "mlp":
-            score_model = DiffusionMLP(self.args)
-        elif self.args.model.name == "unetmlp":
+        if self.args.model.name == "unetmlp":
             score_model = UnetMLP_simple(self.args)
-        elif "double" in self.args.model.name:
-            score_model = DoubleSEDD(self.args)
-        elif "sedd" in self.args.model.name:
-            score_model = SEDD(self.args)
+        elif self.args.model.name == "unetmlp_seq":
+            score_model = UnetMLPSeq(self.args)
+        elif self.args.model.name == "transformer":
+            score_model = Transformer(self.args)
         else:
-            score_model = AutoModelForMaskedLM.from_pretrained(self.args.model.name, trust_remote_code=True)
+            raise NotImplementedError(f"Model {self.args.model.name} is not implemented.")
         self.score_model = score_model
         self.ema = ExponentialMovingAverage(
         score_model.parameters(), decay=self.args.training.ema)

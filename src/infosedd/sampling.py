@@ -272,7 +272,7 @@ def get_sampling_fn(config, graph, noise, batch_dims, eps, device, p=None):
 def get_mutinfo_step_fn(config, graph, noise, proj_fn = lambda x, is_score: x):
 
     def mutinfo_step_fn(model, batch, return_noise=False):
-        if config.is_parametric_marginal:
+        if config.is_parametric_marginal and config.use_marginal_flag:
             if config.variant == "j":
                 score_fn_x = mutils.get_score_fn(model, train=False, sampling=True, marginal_flag=0)
                 score_fn_y = mutils.get_score_fn(model, train=False, sampling=True, marginal_flag=1)
@@ -280,7 +280,6 @@ def get_mutinfo_step_fn(config, graph, noise, proj_fn = lambda x, is_score: x):
             elif config.variant == "c":
                 score_fn_conditional = mutils.get_score_fn(model, train=False, sampling=True, marginal_flag=0)
                 score_fn_marginal = mutils.get_score_fn(model, train=False, sampling=True, marginal_flag=1)
-
         else:
             score_fn = mutils.get_score_fn(model, train=False, sampling=True, marginal_flag=None)
         with torch.no_grad():
@@ -299,7 +298,7 @@ def get_mutinfo_step_fn(config, graph, noise, proj_fn = lambda x, is_score: x):
                 perturbed_batch_y = perturbed_batch.clone()
                 perturbed_batch_y[:, config.x_indices] = graph.dim - 1
 
-                if config.is_parametric_marginal:
+                if config.is_parametric_marginal and config.use_marginal_flag:
                     score_joint = score_fn_joint(perturbed_batch, sigma)
                     score_marginal_x = score_fn_x(perturbed_batch_x, sigma)
                     score_marginal_y = score_fn_y(perturbed_batch_y, sigma)
@@ -334,7 +333,7 @@ def get_mutinfo_step_fn(config, graph, noise, proj_fn = lambda x, is_score: x):
                 perturbed_batch_marginal[:, config.x_indices] = graph.dim - 1
                 perturbed_batch_conditional = perturbed_batch.clone()
                 perturbed_batch_conditional[:, config.x_indices] = batch[:, config.x_indices]
-                if config.is_parametric_marginal:
+                if config.is_parametric_marginal and config.use_marginal_flag:
                     score_marginal = score_fn_marginal(perturbed_batch_marginal, sigma)
                     score_conditional = score_fn_conditional(perturbed_batch_conditional, sigma)
                 else:

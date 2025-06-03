@@ -34,8 +34,6 @@ def get_model_fn(model, train=False, marginal_flag=None):
             model.eval()
         
             # otherwise output the raw values (we handle mlm training in losses.py)
-        if marginal_flag is None:
-            return model(x, sigma, output_hidden_states=False)
         return model(x, sigma, marginal_flag=marginal_flag)
 
     return model_fn
@@ -46,15 +44,7 @@ def get_score_fn(model, train=False, sampling=False, marginal_flag=None):
     with torch.cuda.amp.autocast(dtype=torch.float16):
         def score_fn(x, sigma):
             
-            # sigma = sigma.reshape(-1)
-
-            try:
-                score = model_fn(x, sigma)
-            except:
-                raise UserWarning(f"Devices: {x.device}, {sigma.device}\n\
-                    Shapes: {x.shape}, {sigma.shape}\n\
-                    Types: {x.dtype}, {sigma.dtype}\n")
-            
+            score = model_fn(x, sigma)
             if sampling:
                 # when sampling return true score (not log used for training)
                 return score.exp()
