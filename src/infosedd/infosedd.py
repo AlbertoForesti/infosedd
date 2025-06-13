@@ -19,7 +19,7 @@ from infosedd.model.unetmlp_seq import UnetMLPSeq
 from infosedd.model.transformer import Transformer
 
 from infosedd.utils import array_to_dataset, get_infinite_loader, get_proj_fn
-from transformers import get_linear_schedule_with_warmup, get_constant_schedule_with_warmup, get_cosine_with_hard_restarts_schedule_with_warmup
+from transformers import get_linear_schedule_with_warmup, get_constant_schedule_with_warmup, get_cosine_with_hard_restarts_schedule_with_warmup, get_cosine_schedule_with_warmup
 
 from torch.utils.data import DataLoader
 
@@ -62,6 +62,7 @@ class InfoSEDD(pl.LightningModule):
         warmup_steps = self.args.optim.warmup
         
         # Create the learning rate scheduler
+        # scheduler = get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=warmup_steps, num_training_steps=total_steps)
         scheduler = get_cosine_with_hard_restarts_schedule_with_warmup(optimizer, num_warmup_steps=warmup_steps, num_training_steps=total_steps, num_cycles=10)
         
         return [optimizer], [{'scheduler': scheduler, 'interval': 'step'}]
@@ -78,7 +79,6 @@ class InfoSEDD(pl.LightningModule):
 
         self.entropy_estimate = None
         self.mutinfo_estimate = None
-        self.oinfo_estimate = None
 
         data_set = array_to_dataset(x)
 
@@ -97,9 +97,6 @@ class InfoSEDD(pl.LightningModule):
 
         if self.entropy_estimate is not None:
             ret_dict["entropy"] = self.entropy_estimate
-        
-        if self.oinfo_estimate is not None:    
-            ret_dict["oinfo"] = self.oinfo_estimate
 
         return ret_dict
 
@@ -109,17 +106,32 @@ class InfoSEDD(pl.LightningModule):
             self.args["alphabet_size"] = max(np.max(x), np.max(y)) + 1
         self.mutinfo_estimate = None
         self.entropy_estimate = None
-        self.oinfo_estimate = None
 
         if config_override is not None:
             self.args.update(config_override)
 
         setattr(self.args, "x_indices", list(range(x.shape[1])))
         setattr(self.args, "y_indices", list(range(x.shape[1], x.shape[1] + y.shape[1])))
+        
+        if self.args.estimate_fraction > 0 and self.args.estimate_fraction < 1:
+            valid_size = int(self.args.estimate_fraction*x.shape[0])
+            x_train = x[valid_size:]
+            y_train = y[valid_size:]
 
-        data_set = array_to_dataset(x, y)
-        self.train_loader = DataLoader(data_set, batch_size=self.args.training.batch_size, shuffle=True)
-        self.valid_loader = DataLoader(data_set, batch_size=self.args.training.batch_size, shuffle=False)
+            x_valid = x[:valid_size]
+            y_valid = y[:valid_size]
+
+            train_set = array_to_dataset(x_train, y_train)
+            valid_set = array_to_dataset(x_valid, y_valid)
+        
+        elif self.args.estimate_fraction == 0:
+            train_set = valid_set = array_to_dataset(x, y)
+        
+        else:
+            raise ValueError(f"Invalid estimate fraction: {self.args.estimate_fraction}")
+
+        self.train_loader = DataLoader(train_set, batch_size=self.args.training.batch_size, shuffle=True)
+        self.valid_loader = DataLoader(valid_set, batch_size=self.args.training.batch_size, shuffle=False)
         self.valid_loader = get_infinite_loader(self.valid_loader)
         self._build_score_model()
         self._setup_proj_fn()
@@ -135,8 +147,6 @@ class InfoSEDD(pl.LightningModule):
             ret_dict["mi"] = self.mutinfo_estimate
         if self.entropy_estimate is not None:
             ret_dict["entropy"] = self.entropy_estimate
-        if self.oinfo_estimate is not None:
-            ret_dict["oinfo"] = self.oinfo_estimate
 
         return ret_dict
     
@@ -218,11 +228,6 @@ class InfoSEDD(pl.LightningModule):
             self.entropy_step_fn = sampling.get_entropy_step_fn(self.args, self.graph, self.noise, self.proj_fn)
             self.ema_entropy = ExponentialMovingAverage(
                 torch.nn.Parameter(torch.tensor([0.0]), requires_grad=True), decay=self.args.training.ema)
-        
-        if self.args.estimate_oinfo:
-            self.oinfo_step_fn = sampling.get_oinfo_step_fn(self.args, self.graph, self.noise, self.proj_fn)
-            self.ema_oinfo = ExponentialMovingAverage(
-                torch.nn.Parameter(torch.tensor([0.0]), requires_grad=True), decay=self.args.training.ema)
     
     def _setup_loss_fns(self):
         self.loss_fn_train = losses.get_loss_fn(self.args, self.noise, self.graph, True)
@@ -253,8 +258,11 @@ class InfoSEDD(pl.LightningModule):
 
         ret_dict = {}
         ret_dict["loss"] = loss
+        current_lr = self.optimizers().param_groups[0]['lr']
+        self.log("lr", current_lr, on_step=True, on_epoch=False, prog_bar=True, logger=True)
+        self.logger.experiment.add_scalar("lr", current_lr, self.global_step)
 
-        if self.args.estimate_mutinfo:
+        if self.args.estimate_mutinfo and self.args.ema_info_estimate:
             mutinfo_estimate = self.mutinfo_step_fn(self.score_model, batch)
             mutinfo_estimate = torch.tensor(mutinfo_estimate)
             self.ema_mutinfo.update([torch.nn.Parameter(mutinfo_estimate, requires_grad=True)])
@@ -262,15 +270,6 @@ class InfoSEDD(pl.LightningModule):
             ret_dict["ema_mutinfo"] = ema_estimate
             self.log("ema_mutinfo", ema_estimate, on_step=True, on_epoch=False, prog_bar=True, logger=True)
             self.logger.experiment.add_scalar("ema_mutinfo", ema_estimate, self.global_step)
-        
-        if self.args.estimate_oinfo:
-            oinfo_estimate = self.oinfo_step_fn(self.score_model, batch)
-            oinfo_estimate = torch.tensor(oinfo_estimate)
-            self.ema_oinfo.update([torch.nn.Parameter(oinfo_estimate, requires_grad=True)])
-            ema_estimate = self.ema_oinfo.shadow_params[0].item()
-            ret_dict["ema_oinfo"] = ema_estimate
-            self.log("ema_oinfo", ema_estimate, on_step=True, on_epoch=False, prog_bar=True, logger=True)
-            self.logger.experiment.add_scalar("ema_oinfo", ema_estimate, self.global_step)
 
         if self.args.estimate_entropy:
             entropy_estimate = self.entropy_step_fn(self.score_model, batch)
@@ -306,13 +305,12 @@ class InfoSEDD(pl.LightningModule):
         with torch.no_grad():
             loss = self.loss_fn_test(self.score_model, batch).mean()
             ret_dict["loss"] = loss
+            # Store the loss for epoch-level logging
+            self.validation_losses.append(loss.item())
             if self.args.estimate_mutinfo:
                 mutinfo = self.mutinfo_step_fn(self.score_model, batch)
                 ret_dict["mutinfo"] = mutinfo
                 self.mutinfo_step_estimates.append(mutinfo)
-            if self.args.estimate_oinfo:
-                oinfo = self.oinfo_step_fn(self.score_model, batch)
-                ret_dict["oinfo"] = oinfo
             if self.args.estimate_entropy:
                 entropy = self.entropy_step_fn(self.score_model, batch)
                 ret_dict["entropy"] = entropy
@@ -326,9 +324,6 @@ class InfoSEDD(pl.LightningModule):
                 mutinfo = self.mutinfo_step_fn(self.score_model, batch)
                 ret_dict["mutinfo"] = mutinfo
                 self.mutinfo_step_estimates.append(mutinfo)
-            if self.args.estimate_oinfo:
-                oinfo = self.oinfo_step_fn(self.score_model, batch)
-                ret_dict["oinfo"] = oinfo
             if self.args.estimate_entropy:
                 entropy = self.entropy_step_fn(self.score_model, batch)
                 ret_dict["entropy"] = entropy
@@ -339,8 +334,6 @@ class InfoSEDD(pl.LightningModule):
         self.ema.copy_to(self.score_model.parameters())
         if self.args.estimate_mutinfo:
             self.mutinfo_step_estimates = []
-        if self.args.estimate_oinfo:
-            self.oinfo_step_estimates = []
         if self.args.estimate_entropy:
             self.entropy_step_estimates = []
     
@@ -349,8 +342,6 @@ class InfoSEDD(pl.LightningModule):
 
         if self.args.estimate_mutinfo:
             self.mutinfo_estimate = np.mean(self.mutinfo_step_estimates)
-        if self.args.estimate_oinfo:
-            self.oinfo_estimate = np.mean(self.oinfo_step_estimates)
         if self.args.estimate_entropy:
             self.entropy_estimate = np.mean(self.entropy_step_estimates)
     
@@ -367,26 +358,25 @@ class InfoSEDD(pl.LightningModule):
     def on_validation_epoch_start(self):
         self.ema.store(self.score_model.parameters())
         self.ema.copy_to(self.score_model.parameters())
+        self.validation_losses = []
         if self.args.estimate_mutinfo:
             self.mutinfo_step_estimates = []
-        if self.args.estimate_oinfo:
-            self.oinfo_step_estimates = []
         if self.args.estimate_entropy:
             self.entropy_step_estimates = []
         
 
     def on_validation_epoch_end(self):
         self.ema.restore(self.score_model.parameters())
-
+        
+        if hasattr(self, 'validation_losses') and self.validation_losses:
+            avg_val_loss = np.mean(self.validation_losses)
+            self.logger.experiment.add_scalar("val_loss", avg_val_loss, self.global_step)
+            self.log("val_loss", avg_val_loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
         if self.args.estimate_mutinfo:
             self.mutinfo_estimate = np.mean(self.mutinfo_step_estimates)
             self.logger.experiment.add_scalar("val_mutinfo", self.mutinfo_estimate, self.global_step)
             self.log("val_mutinfo", self.mutinfo_estimate, on_step=False, on_epoch=True, prog_bar=True, logger=True)
             print(f"Mutual information estimate: {self.mutinfo_estimate}")
-        if self.args.estimate_oinfo:
-            self.oinfo_estimate = np.mean(self.oinfo_step_estimates)
-            self.logger.experiment.add_scalar("val_oinfo", self.oinfo_estimate, self.global_step)
-            self.log("val_oinfo", self.oinfo_estimate, on_step=False, on_epoch=True, prog_bar=True, logger=True)
         if self.args.estimate_entropy:
             self.entropy_estimate = np.mean(self.entropy_step_estimates)
             self.logger.experiment.add_scalar("val_entropy", self.entropy_estimate, self.global_step)
