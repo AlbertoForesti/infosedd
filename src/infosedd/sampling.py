@@ -286,7 +286,6 @@ def get_mutinfo_step_fn(config, graph, noise, proj_fn = lambda x, is_score: x):
             t = torch.rand(batch.shape[0], 1).to(batch.device)
             sigma, dsigma = noise(t)
             
-            # raise UserWarning(f"t is {t}, sigma is {sigma}, batch shape is {batch.shape}")
             perturbed_batch = graph.sample_transition(batch, sigma)
             perturbed_batch = proj_fn(perturbed_batch, is_score=False)
 

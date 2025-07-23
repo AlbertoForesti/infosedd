@@ -1,0 +1,12 @@
+# @package _global_
+
+distribution_key: seq_length=${distribution.seq_length}__dim=2
+alphabet_size: null
+
+hydra:
+  sweeper:
+    params:
+      ++distribution._target_: distribution_generator.distributions.get_rv
+      ++distribution.min_val: 0.001
+      ++distribution.dim: 2
+      ++distribution.seq_length: 2
