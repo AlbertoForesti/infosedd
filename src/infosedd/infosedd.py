@@ -15,8 +15,6 @@ from infosedd import losses
 
 from infosedd.model.ema import ExponentialMovingAverage
 from infosedd.model.unetmlp import UnetMLP_simple
-from infosedd.model.unetmlp_seq import UnetMLPSeq
-from infosedd.model.transformer import Transformer
 
 from infosedd.utils import array_to_dataset, get_infinite_loader, get_proj_fn
 from transformers import get_linear_schedule_with_warmup, get_constant_schedule_with_warmup, get_cosine_with_hard_restarts_schedule_with_warmup, get_cosine_schedule_with_warmup
