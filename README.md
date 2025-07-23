@@ -1,4 +1,4 @@
-# Mutual Information Estimation with Score Entropy Discrete Diffusion
+# INFO-SEDD: Continuous Time Markov Chains as Scalable Information Metrics Estimators
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ## Installation
