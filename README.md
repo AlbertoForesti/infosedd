@@ -25,8 +25,29 @@ To install the project, follow these steps:
 
 ## Usage
 
-After installing the project, you can run the scripts and notebooks provided in the repository.
+After installing the project, you can run the scripts provided in the repository.
+
+To run an experiment with synthetic data do:
+```bash
+cd evaluation
+bash run_experiment.sh
+```
+
+## Citation
+
+If you use this code in your research, please cite our paper:
+
+```bibtex
+@article{foresti2025info,
+  title={INFO-SEDD: Continuous Time Markov Chains as Scalable Information Metrics Estimators},
+  author={Foresti, Alberto and Franzese, Giulio and Michiardi, Pietro},
+  journal={arXiv preprint arXiv:2502.19183},
+  year={2025}
+}
+```
+
+Paper: [https://arxiv.org/pdf/2502.19183](https://arxiv.org/pdf/2502.19183)
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
